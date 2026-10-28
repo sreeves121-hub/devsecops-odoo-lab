@@ -31,7 +31,15 @@ services:
       HOST: db
       USER: ${POSTGRES_USER}
       PASSWORD: ${POSTGRES_PASSWORD}
-    command: ["odoo", "--admin-passwd=${ODOO_MASTER_PASSWORD}"]
+      ODOO_MASTER_PASSWORD: ${ODOO_MASTER_PASSWORD}
+    # Odoo has no CLI flag for the master password, so write it into a temporary copy of the config.
+    command:
+      - sh
+      - -c
+      - |
+        cp /etc/odoo/odoo.conf /tmp/odoo.conf
+        printf 'admin_passwd = %s\n' "$$ODOO_MASTER_PASSWORD" >> /tmp/odoo.conf
+        ODOO_RC=/tmp/odoo.conf exec /entrypoint.sh odoo
     ports:
       - "127.0.0.1:8069:8069"
     volumes:
