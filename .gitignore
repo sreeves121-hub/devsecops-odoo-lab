@@ -1,0 +1,23 @@
+# Secrets & local config
+.env
+*.pem
+*.key
+ansible/inventory.ini
+ansible/group_vars/all.yml
+.vault_pass
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!terraform.tfvars.example
+crash.log
+
+# Python / tooling
+__pycache__/
+*.pyc
+reports/
+zap-reports/
+sbom*.json
+.DS_Store

@@ -1,0 +1,106 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: odoo-filestore
+  namespace: odoo-lab
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: odoo
+  namespace: odoo-lab
+spec:
+  selector:
+    app: odoo
+  ports:
+    - port: 8069
+      targetPort: 8069
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: odoo
+  namespace: odoo-lab
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: odoo
+  template:
+    metadata:
+      labels:
+        app: odoo
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        # Verify with: docker run --rm --entrypoint id devsecops-odoo-lab:local   (adjust if not 101)
+        runAsUser: 101
+        runAsGroup: 101
+        fsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: odoo
+          # Local lab: build the image, then `k3d image import devsecops-odoo-lab:local`.
+          # Later: switch to ghcr.io/<you>/devsecops-odoo-lab:sha-<commit> (signed by the pipeline).
+          image: devsecops-odoo-lab:local
+          imagePullPolicy: IfNotPresent
+          args: ["odoo", "--admin-passwd=$(ODOO_MASTER_PASSWORD)"]
+          ports:
+            - containerPort: 8069
+          env:
+            - name: HOST
+              value: odoo-db
+            - name: USER
+              valueFrom:
+                secretKeyRef:
+                  name: odoo-secrets
+                  key: postgres-user
+            - name: PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: odoo-secrets
+                  key: postgres-password
+            - name: ODOO_MASTER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: odoo-secrets
+                  key: odoo-master-password
+          securityContext:
+            allowPrivilegeEscalation: false
+            # Exercise: enable readOnlyRootFilesystem and mount emptyDir volumes for /tmp.
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          readinessProbe:
+            httpGet:
+              path: /web/health
+              port: 8069
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /web/health
+              port: 8069
+            initialDelaySeconds: 90
+            periodSeconds: 20
+          volumeMounts:
+            - name: filestore
+              mountPath: /var/lib/odoo
+      volumes:
+        - name: filestore
+          persistentVolumeClaim:
+            claimName: odoo-filestore

@@ -1,0 +1,194 @@
+name: DevSecOps Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------- Stage 1: shift-left checks (run in parallel) ----------
+  secrets-scan:
+    name: Secret scan (Gitleaks)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+
+  sast:
+    name: SAST (Semgrep)
+    runs-on: ubuntu-latest
+    container:
+      # Exercise: pin this image by digest instead of a floating tag.
+      image: semgrep/semgrep:latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Semgrep (fails on ERROR findings)
+        run: >
+          semgrep scan
+          --config p/python
+          --config p/owasp-top-ten
+          --config semgrep/custom-rules.yml
+          --error --severity ERROR
+          --sarif --output semgrep.sarif .
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: semgrep-sarif
+          path: semgrep.sarif
+
+  sca:
+    name: SCA + secrets (Trivy filesystem)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+
+  iac-policy:
+    name: IaC + policy as code (Checkov, Conftest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkov (report only - flip soft_fail to false once findings are fixed)
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: .
+          framework: terraform,kubernetes,dockerfile,github_actions
+          soft_fail: true
+          output_format: cli
+      - name: Install Conftest
+        run: |
+          CONFTEST_VERSION=0.56.0
+          curl -sSL "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" | tar -xz conftest
+          sudo mv conftest /usr/local/bin/conftest
+      - name: Policy tests (compose + Kubernetes manifests)
+        run: conftest test docker-compose.yml docker-compose.monitoring.yml k8s/*.yaml --policy policy
+
+  # ---------- Stage 2: build, test, scan image, DAST ----------
+  build-test-dast:
+    name: Build, test, image scan, DAST
+    needs: [secrets-scan, sast, sca, iac-policy]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create throw-away CI environment file
+        run: |
+          {
+            echo "POSTGRES_USER=odoo"
+            echo "POSTGRES_PASSWORD=$(openssl rand -hex 16)"
+            echo "ODOO_MASTER_PASSWORD=$(openssl rand -hex 16)"
+            echo "GRAFANA_ADMIN_PASSWORD=$(openssl rand -hex 16)"
+          } > .env
+
+      - name: Build image
+        run: docker compose build odoo
+
+      - name: Container image scan (Trivy, fails on CRITICAL)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: devsecops-odoo-lab:local
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Generate SBOM (CycloneDX)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: devsecops-odoo-lab:local
+          format: cyclonedx
+          output: sbom.cdx.json
+
+      - name: Run Odoo module tests
+        run: >
+          docker compose run --rm odoo
+          odoo -d ci -i base,devsecops_demo --without-demo=all
+          --test-enable --test-tags /devsecops_demo --stop-after-init
+
+      - name: Start Odoo and wait for health
+        run: |
+          docker compose up -d odoo
+          for i in $(seq 1 30); do
+            if curl -fs http://localhost:8069/web/health > /dev/null; then echo "Odoo is up"; exit 0; fi
+            sleep 5
+          done
+          docker compose logs odoo
+          exit 1
+
+      - name: DAST baseline (OWASP ZAP) - warnings do not fail the build (-I)
+        run: |
+          mkdir -p zap-reports && chmod 777 zap-reports
+          docker run --rm --network host -v "$PWD/zap-reports:/zap/wrk:rw" \
+            ghcr.io/zaproxy/zaproxy:stable \
+            zap-baseline.py -t http://localhost:8069/web/login \
+            -r zap-report.html -J zap-report.json -I
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-evidence
+          path: |
+            sbom.cdx.json
+            zap-reports/
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
+
+  # ---------- Stage 3: publish + sign (main branch only) ----------
+  publish:
+    name: Publish and sign image (GHCR + Cosign)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build-test-dast
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compute lowercase image name
+        id: meta
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: ./app
+          push: true
+          provenance: true
+          sbom: true
+          tags: |
+            ${{ steps.meta.outputs.image }}:sha-${{ github.sha }}
+            ${{ steps.meta.outputs.image }}:main
+      - uses: sigstore/cosign-installer@v3
+      - name: Sign image (keyless, GitHub OIDC)
+        run: cosign sign --yes "${{ steps.meta.outputs.image }}@${{ steps.build.outputs.digest }}"

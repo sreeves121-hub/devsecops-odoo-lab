@@ -1,0 +1,9 @@
+# Copy to all.yml (git-ignored). Encrypt secrets with: ansible-vault encrypt_string '<value>' --name 'postgres_password'
+admin_cidr: "203.0.113.10/32"
+repo_url: "https://github.com/<your-user>/devsecops-odoo-lab.git"
+repo_version: "main"
+app_dir: /opt/devsecops-odoo-lab
+postgres_user: odoo
+postgres_password: "CHANGE_ME"
+odoo_master_password: "CHANGE_ME"
+grafana_admin_password: "CHANGE_ME"

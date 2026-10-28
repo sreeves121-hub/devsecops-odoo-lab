@@ -1,0 +1,43 @@
+rules:
+  - id: odoo-sql-injection-string-building
+    languages: [python]
+    severity: ERROR
+    message: >
+      SQL built with string formatting passed to cr.execute(). Use query parameters
+      (cr.execute("... WHERE id = %s", (value,))) or odoo.tools.SQL instead.
+    metadata:
+      cwe: "CWE-89"
+      owasp: "A03:2021 Injection"
+    pattern-either:
+      - pattern: $CR.execute($Q % ...)
+      - pattern: $CR.execute($Q.format(...))
+      - pattern: $CR.execute(f"...{$X}...")
+
+  - id: odoo-unsafe-eval
+    languages: [python]
+    severity: ERROR
+    message: eval()/exec() on dynamic input allows code execution. Use odoo.tools.safe_eval with a restricted context.
+    metadata:
+      cwe: "CWE-95"
+    pattern-either:
+      - pattern: eval($X)
+      - pattern: exec($X)
+
+  - id: odoo-public-route-auth-none
+    languages: [python]
+    severity: WARNING
+    message: Controller route with auth="none" is reachable without a session. Confirm this is intentional and validates all input.
+    metadata:
+      cwe: "CWE-306"
+    pattern: |
+      @http.route(..., auth="none", ...)
+      def $F(...):
+          ...
+
+  - id: odoo-sudo-review
+    languages: [python]
+    severity: WARNING
+    message: sudo() bypasses access rights and record rules. Review that it cannot be abused to read or write other users' data.
+    metadata:
+      cwe: "CWE-269"
+    pattern: $X.sudo()

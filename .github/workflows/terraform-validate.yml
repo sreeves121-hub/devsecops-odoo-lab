@@ -1,0 +1,26 @@
+name: Terraform validate
+
+on:
+  pull_request:
+    paths: ["terraform/**"]
+  push:
+    branches: [main]
+    paths: ["terraform/**"]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - name: "Format check (exercise - make this blocking after running terraform fmt)"
+        run: terraform fmt -check -recursive
+        continue-on-error: true
+      - run: terraform init -backend=false
+      - run: terraform validate

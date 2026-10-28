@@ -1,0 +1,54 @@
+name: odoo-lab
+
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: postgres
+    volumes:
+      - odoo-db:/var/lib/postgresql/data
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - backend
+
+  odoo:
+    build: ./app
+    image: devsecops-odoo-lab:local
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      HOST: db
+      USER: ${POSTGRES_USER}
+      PASSWORD: ${POSTGRES_PASSWORD}
+    command: ["odoo", "--admin-passwd=${ODOO_MASTER_PASSWORD}"]
+    ports:
+      - "127.0.0.1:8069:8069"
+    volumes:
+      - odoo-web:/var/lib/odoo
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - frontend
+      - backend
+
+volumes:
+  odoo-db:
+  odoo-web:
+
+networks:
+  frontend:
+  backend:
+    internal: true # database has no route to the internet

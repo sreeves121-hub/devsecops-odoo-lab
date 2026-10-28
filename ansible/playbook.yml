@@ -1,0 +1,95 @@
+---
+- name: Harden the host and deploy the Odoo lab
+  hosts: odoo
+  become: true
+
+  tasks:
+    - name: Install packages
+      ansible.builtin.apt:
+        name:
+          - ufw
+          - fail2ban
+          - auditd
+          - unattended-upgrades
+          - lynis
+          - git
+          - docker.io
+          - docker-compose-v2
+        state: present
+        update_cache: true
+
+    - name: Enable automatic security updates
+      ansible.builtin.copy:
+        dest: /etc/apt/apt.conf.d/20auto-upgrades
+        mode: "0644"
+        content: |
+          APT::Periodic::Update-Package-Lists "1";
+          APT::Periodic::Unattended-Upgrade "1";
+
+    - name: Harden SSH
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: "^#?{{ item.key }}\\s"
+        line: "{{ item.key }} {{ item.value }}"
+        validate: /usr/sbin/sshd -t -f %s
+      loop:
+        - { key: PermitRootLogin, value: "no" }
+        - { key: PasswordAuthentication, value: "no" }
+        - { key: X11Forwarding, value: "no" }
+        - { key: MaxAuthTries, value: "3" }
+      notify: Restart ssh
+
+    - name: Firewall - default deny incoming
+      community.general.ufw:
+        default: deny
+        direction: incoming
+
+    - name: Firewall - allow SSH from admin only
+      community.general.ufw:
+        rule: allow
+        port: "22"
+        proto: tcp
+        from_ip: "{{ admin_cidr }}"
+
+    - name: Firewall - enable
+      community.general.ufw:
+        state: enabled
+
+    - name: Enable and start services
+      ansible.builtin.service:
+        name: "{{ item }}"
+        state: started
+        enabled: true
+      loop:
+        - fail2ban
+        - auditd
+        - docker
+
+    - name: Fetch the lab repository
+      ansible.builtin.git:
+        repo: "{{ repo_url }}"
+        dest: "{{ app_dir }}"
+        version: "{{ repo_version }}"
+
+    - name: Render .env (secrets come from Ansible Vault)
+      ansible.builtin.template:
+        src: env.j2
+        dest: "{{ app_dir }}/.env"
+        owner: root
+        group: root
+        mode: "0600"
+
+    - name: Start the Odoo stack
+      ansible.builtin.command:
+        cmd: docker compose up -d --build
+        chdir: "{{ app_dir }}"
+      changed_when: true
+
+    # NOTE: Docker publishes ports by editing iptables directly and bypasses UFW.
+    # That is why docker-compose.yml binds Odoo to 127.0.0.1 only.
+
+  handlers:
+    - name: Restart ssh
+      ansible.builtin.service:
+        name: ssh
+        state: restarted
