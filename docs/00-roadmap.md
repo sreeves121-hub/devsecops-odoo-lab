@@ -24,14 +24,15 @@ flowchart LR
 
 ### Phase 1 - Foundations ([guide](01-foundations.md))
 - [ ] Linux CLI comfortable in WSL2
-- [ ] Git workflow (branches, pull requests, signed commits)
+- [x] Git workflow: branches and pull requests
+- [ ] Git: signed commits
 - [ ] Bash script written and committed (`scripts/healthcheck.sh` extended)
 - [ ] Reverse proxy with TLS in front of Odoo
 
 ### Phase 2 - Containers and CI/CD ([guide](02-containers-cicd.md))
-- [ ] Dockerfile hardened (non-root, pinned, minimal)
-- [ ] GitHub Actions pipeline green on `main`
-- [ ] Branch protection requires the pipeline
+- [ ] Dockerfile hardened (non-root done; pin by digest still open)
+- [x] GitHub Actions pipeline green on `main`
+- [x] Branch protection requires the pipeline
 
 ### Phase 3 - Security in the pipeline ([guide](03-security-pipeline.md))
 - [ ] All six "break the pipeline" exercises done and triaged
