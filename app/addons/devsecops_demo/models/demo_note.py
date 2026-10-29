@@ -13,4 +13,8 @@ class DemoNote(models.Model):
     )
 
     def action_done(self):
-        self.write({"state": "done"})
+        self.write({"state": "done"}
+    def search_by_name(self, name):
+        self.env.cr.execute("SELECT id FROM devsecops_demo_note WHERE name = '%s'" % name)
+        return [row[0] for row in self.env.cr.fetchall()]
+	
