@@ -9,4 +9,5 @@ Evidence:      <form role="form" action="/web/database/create" method="post"> in
 Impact:        If the master password were known or guessable, an attacker could create or drop databases. The database manager should not be exposed in shared or production environments.
 Remediation:   Set list_db = False in app/config/odoo.conf to disable the database manager. PR: https://github.com/sreeves121-hub/devsecops-odoo-lab/pull/7
 Status:        Fixed
-Verified by:   https://github.com/sreeves121-hub/devsecops-odoo-lab/actions/runs/40829800459
+Verified by:   https://github.com/sreeves121-hub/devsecops-odoo-lab/actions/runs/<angka>
+Retest:        2026-10-29, rebuilt image from main; http://localhost:8069/web/database/manager now answers "disabled by the administrator". ZAP report from pipeline run <angka> no longer lists the manager form.
