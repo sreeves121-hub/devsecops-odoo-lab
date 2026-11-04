@@ -18,7 +18,7 @@ jobs:
         working-directory: terraform
     steps:
       - uses: actions/checkout@v7
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
       - name: "Format check (exercise - make this blocking after running terraform fmt)"
         run: terraform fmt -check -recursive
         continue-on-error: true
