@@ -8,3 +8,4 @@ USER odoo
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=5 \
   CMD python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:8069/web/health')" || exit 1
+USER root
