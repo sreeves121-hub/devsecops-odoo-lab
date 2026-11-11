@@ -1,4 +1,4 @@
-FROM odoo:18.0
+FROM odoo:20.0
 
 # Custom addons are baked into the image so the same artifact is scanned, tested and deployed.
 COPY --chown=odoo:odoo ./addons /mnt/extra-addons
